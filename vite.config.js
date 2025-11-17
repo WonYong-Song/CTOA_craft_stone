@@ -4,8 +4,9 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   base: './',
   build: {
-    base: "/<CTOA_craft_stone>/",
-    plugins: [react()],
-    emptyOutDir: true
+    outDir: 'public',
+    emptyOutDir: true,
   },
 });
+
+
