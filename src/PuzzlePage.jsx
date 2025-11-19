@@ -1227,7 +1227,7 @@ function PuzzlePage() {
                     ) : (
                       <div style={{
                         display: 'grid',
-                        gridTemplateColumns: 'repeat(3, 1fr)',
+                        gridTemplateColumns: 'repeat(5, 1fr)',
                         gap: '8px',
                       }}>
                         {attrPieces.map(piece => (
@@ -1314,7 +1314,7 @@ function PuzzlePage() {
                   ) : (
                     <div style={{
                       display: 'grid',
-                      gridTemplateColumns: 'repeat(3, 1fr)',
+                      gridTemplateColumns: 'repeat(5, 1fr)',
                       gap: '8px',
                     }}>
                       {pieces.filter(p => p.size === 8 && p.attribute === job).map(piece => (
