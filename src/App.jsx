@@ -1,6 +1,23 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { useGame, REWARD_NAMES, REWARD_MODES, clampPosition, getMaxMovesForMode } from './game.js';
 import PuzzlePage from './PuzzlePage.jsx';
+import { 
+  Button, 
+  Select, 
+  MenuItem, 
+  FormControl, 
+  InputLabel, 
+  Card, 
+  CardContent,
+  Typography,
+  Box,
+  Chip,
+  Slider,
+  ToggleButton,
+  ToggleButtonGroup,
+} from '@mui/material';
+import { ThemeProvider, createTheme } from '@mui/material/styles';
+import CssBaseline from '@mui/material/CssBaseline';
 
 // 보상 등급별 색상 매핑
 const REWARD_COLORS = {
@@ -19,37 +36,58 @@ const CHOICES = [
   { id: '3', label: '3번 선택지', range: [0, 4], limitKey: 'choice3Remain' },
 ];
 
+// 선택지 버튼 텍스트 생성 함수 (공통)
+function getButtonText(choiceId, choice2Used, choice3Used) {
+  if (choiceId === '1') return '세게 두드리기\n+3 ~ +6\n무제한';
+  if (choiceId === '2') {
+    const remain = 3 - choice2Used;
+    return `세공하기\n-3 ~ +2\n남은 횟수 : (${remain})`;
+  }
+  if (choiceId === '3') {
+    const remain = 3 - choice3Used;
+    return `안정제 사용\n+0 ~ +4\n남은 횟수 : (${remain})`;
+  }
+  return '';
+}
+
+// Material-UI 다크 테마
+const darkTheme = createTheme({
+  palette: {
+    mode: 'dark',
+    primary: {
+      main: '#60a5fa',
+    },
+    secondary: {
+      main: '#34d399',
+    },
+    warning: {
+      main: '#fbbf24',
+    },
+    background: {
+      default: '#0f172a',
+      paper: '#111827',
+    },
+  },
+});
+
 
 function ModeSegment({ mode, onChange, label = '보상 모드', inline = false }) {
-  const containerStyle = {
-    minWidth: inline ? 200 : 160,
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    justifyContent: 'space-between',
-  };
-
-  const labelStyle = { marginBottom: 0, whiteSpace: 'nowrap' };
-  const selectStyle = inline
-    ? { flex: '1 1 auto' }
-    : { flex: '0 0 auto', minWidth: 140 };
-
   return (
-    <label className="input-group" style={containerStyle}>
-      <select
-        className="input"
+    <FormControl size="small" sx={{ minWidth: inline ? 200 : 160 }}>
+      <InputLabel>시즈나이트 등급</InputLabel>
+      <Select
         value={mode}
         onChange={(e) => onChange(Number(e.target.value))}
-        style={selectStyle}
+        label="시즈나이트 등급"
       >
-        <option value={1}>슈퍼 에픽</option>
-        <option value={2}>유니크</option>
-      </select>
-    </label>
+        <MenuItem value={1}>슈퍼 에픽</MenuItem>
+        <MenuItem value={2}>유니크</MenuItem>
+      </Select>
+    </FormControl>
   );
 }
 
-function Board({ current, rewards }) {
+function Board({ current, rewards, onCellClick, clickable = false }) {
   const maxReward = Math.max(...rewards);
   const rewardSize = rewards.length;
   return (
@@ -66,7 +104,11 @@ function Board({ current, rewards }) {
           <div
             key={idx}
             className={classes.join(' ')}
-            style={bg ? { background: bg } : undefined}
+            style={{
+              ...(bg ? { background: bg } : {}),
+              ...(clickable ? { cursor: 'pointer' } : {}),
+            }}
+            onClick={() => clickable && onCellClick && onCellClick(idx)}
           >
             {boom}
           </div>
@@ -76,7 +118,7 @@ function Board({ current, rewards }) {
   );
 }
 
-function MovesProgress({ used, total = 8, gameOver = false }) {
+function MovesProgress({ used, total = 8, gameOver = false, onCellClick, clickable = false, blinkIndex = -1 }) {
   const cells = Array.from({ length: total });
   return (
     <div className="progress" aria-label="moves-progress">
@@ -84,9 +126,17 @@ function MovesProgress({ used, total = 8, gameOver = false }) {
         const cls = gameOver
           ? `pCell${i < used ? ' end' : ''}`
           : `pCell${i < used ? ' filled' : ''}`;
+        const shouldBlink = clickable && blinkIndex === i;
         return (
           <React.Fragment key={i}>
-            <div className={cls} />
+            <div
+              className={cls}
+              style={{
+                ...(clickable ? { cursor: 'pointer' } : {}),
+                ...(shouldBlink ? { animation: 'blink 1s infinite' } : {}),
+              }}
+              onClick={() => clickable && onCellClick && onCellClick(i)}
+            />
             {i < total - 1 && <span className="pSep">-</span>}
           </React.Fragment>
         );
@@ -268,62 +318,47 @@ function GameView({ game }) {
 
   return (
     <main className="container game-container">
-      <section className="panel">
-        <div className="label" style={{ margin: 8 }}>시즈나이트 등급</div>
-        <div className="row" style={{ justifyContent: 'space-between', marginBottom: 16 }}>
-          <div className="row" style={{ gap: 8, alignItems: 'center' }}>
-            <ModeSegment mode={game.rewardMode} onChange={handleModeChange} label="시즈나이트 종류" />
-            <button className="btn" onClick={game.reset}>초기화</button>
-          </div>
-        </div>
+      <Card sx={{ p: 2 }}>
+        <Typography variant="overline" color="text.secondary" sx={{ display: 'block', mb: 1 }}>시즈나이트 등급</Typography>
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 2 }}>
+          <ModeSegment mode={game.rewardMode} onChange={handleModeChange} label="시즈나이트 종류" />
+          <Button variant="outlined" size="small" onClick={game.reset}>초기화</Button>
+        </Box>
 
-        <div className="label" style={{ margin: 8 }}>보상 보드</div>
+        <Typography variant="overline" color="text.secondary" sx={{ display: 'block', mb: 1 }}>보상 보드</Typography>
         <Board current={game.currentPosition} rewards={game.rewardArray} />
-        <div className="label" style={{ margin: 8 }}>잔여 횟수</div>
+        <Typography variant="overline" color="text.secondary" sx={{ display: 'block', mt: 2, mb: 1 }}>잔여 횟수</Typography>
         <MovesProgress used={movesUsed} total={moveLimit} gameOver={game.gameOver} />
 
-        <div className="controls" style={{ marginTop: 14 }}>
-          <div className="label" style={{ marginBottom: 6 }}>선택지</div>
-          <div className="choices" aria-label="선택지">
+        <Box sx={{ mt: 2 }}>
+          <Typography variant="overline" color="text.secondary" sx={{ display: 'block', mb: 1 }}>선택지</Typography>
+          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1.5 }}>
             {probabilityResults.map((res) => {
-              const getButtonClass = () => {
-                if (res.choice.id === '1') return 'btn primary';
-                if (res.choice.id === '2') return 'btn warn';
-                if (res.choice.id === '3') return 'btn success';
-                return 'btn';
-              };
-
-              const getButtonText = () => {
-                if (res.choice.id === '1') return '세게 두드리기\n+3 ~ +6\n무제한';
-                if (res.choice.id === '2') {
-                  const remain = 3 - game.choice2Used;
-                  return `세공하기\n-3 ~ +2\n남은 횟수 : (${remain})`;
-                }
-                if (res.choice.id === '3') {
-                  const remain = 3 - game.choice3Used;
-                  return `안정제 사용\n+0 ~ +4\n남은 횟수 : (${remain})`;
-                }
-                return res.choice.label;
-              };
-
-              const wrapperStyle = {
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 0,
-                ...(res.isBest
-                  ? {
-                      boxShadow: '0 0 0 2px #facc15',
-                      borderRadius: '10px',
-                      overflow: 'hidden',
-                      position: 'relative',
-                    }
-                  : {}),
+              const getButtonColor = () => {
+                if (res.choice.id === '1') return 'primary';
+                if (res.choice.id === '2') return 'warning';
+                if (res.choice.id === '3') return 'secondary';
+                return 'primary';
               };
 
               return (
-                <div key={res.choice.id} style={wrapperStyle}>
-                  <button
-                    className={getButtonClass()}
+                <Box
+                  key={res.choice.id}
+                  sx={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    ...(res.isBest
+                      ? {
+                          boxShadow: '0 0 0 2px #facc15',
+                          borderRadius: '10px',
+                          overflow: 'hidden',
+                        }
+                      : {}),
+                  }}
+                >
+                  <Button
+                    variant="contained"
+                    color={getButtonColor()}
                     disabled={res.disabled}
                     onClick={() => {
                       if (res.disabled) return;
@@ -332,43 +367,39 @@ function GameView({ game }) {
                       if (res.choice.id === '3') game.applyMove('3', [0, 4]);
                     }}
                     title={res.disabled ? res.reason : undefined}
-                    style={{
-                      cursor: res.disabled ? 'not-allowed' : 'pointer',
+                    sx={{
                       whiteSpace: 'pre-line',
+                      minHeight: 80,
+                      borderRadius: !res.disabled ? '10px 10px 0 0' : '10px',
                     }}
                   >
-                    {getButtonText()}
-                  </button>
+                    {getButtonText(res.choice.id, game.choice2Used, game.choice3Used)}
+                  </Button>
                   {!res.disabled && typeof res.probability === 'number' && (
-                    <div
-                      className="card"
-                      style={{
-                        padding: '12px',
+                    <Card
+                      sx={{
+                        p: 1.5,
                         borderRadius: '0 0 10px 10px',
-                        marginTop: 0,
-                        borderTop: 'none',
-                        background: 'var(--panel-2)',
                         textAlign: 'center',
+                        bgcolor: 'background.paper',
                       }}
                     >
-                      <div className="value mono" style={{ fontSize: 18, fontWeight: 'bold' }}>
+                      <Typography variant="h6" sx={{ fontFamily: 'monospace', fontWeight: 'bold' }}>
                         {(res.probability * 100).toFixed(2)}%
-                      </div>
-                    </div>
+                      </Typography>
+                    </Card>
                   )}
-                </div>
+                </Box>
               );
             })}
-          </div>
-        </div>
-      </section>
+          </Box>
+        </Box>
+      </Card>
 
-      <section className="panel info-panel">
-        <div className="card">
-          <div className="label">최종 보상</div>
-          <div className="value">{game.finalReward == null ? '-' : `${REWARD_NAMES[game.finalReward]}`}</div>
-        </div>
-      </section>
+      <Card sx={{ p: 2 }}>
+        <Typography variant="overline" color="text.secondary" display="block">최종 보상</Typography>
+        <Typography variant="h5">{game.finalReward == null ? '-' : `${REWARD_NAMES[game.finalReward]}`}</Typography>
+      </Card>
     </main>
   );
 }
@@ -522,6 +553,7 @@ function ProbabilityTool() {
   const [remainingMoves, setRemainingMoves] = useState(() => getMaxMovesForMode(1));
   const [choice2Remain, setChoice2Remain] = useState(3);
   const [choice3Remain, setChoice3Remain] = useState(3);
+  const [blinkMoveIndex, setBlinkMoveIndex] = useState(0); // 깜빡여야 할 MovesProgress 인덱스
 
   const rewardArray = REWARD_MODES[rewardMode];
   const manualMoveLimit = getMaxMovesForMode(rewardMode);
@@ -529,7 +561,14 @@ function ProbabilityTool() {
 
   useEffect(() => {
     setRemainingMoves(manualMoveLimit);
+    setBlinkMoveIndex(0);
   }, [rewardMode, manualMoveLimit]);
+
+  // 현재 잔여 횟수를 기반으로 깜빡일 인덱스 계산
+  useEffect(() => {
+    const usedMoves = manualMoveLimit - remainingMoves;
+    setBlinkMoveIndex(usedMoves);
+  }, [remainingMoves, manualMoveLimit]);
 
   const probabilityResults = useMemo(() => {
     if (clampedRemainingMoves <= 0) {
@@ -658,187 +697,211 @@ function ProbabilityTool() {
     });
   }, [rewardMode, position, clampedRemainingMoves, choice2Remain, choice3Remain, rewardArray]);
 
+  const handleBoardClick = (idx) => {
+    setPosition(idx);
+  };
+
+  const handleMovesClick = (idx) => {
+    // 클릭한 인덱스를 기반으로 잔여 횟수 계산
+    // idx가 0이면 모든 횟수가 남음 (used = 0, remaining = manualMoveLimit)
+    // idx가 1이면 1회 사용 (used = 1, remaining = manualMoveLimit - 1)
+    const usedMoves = idx;
+    const newRemainingMoves = Math.max(0, manualMoveLimit - usedMoves);
+    setRemainingMoves(newRemainingMoves);
+  };
+
   return (
     <main className="container prob-container-single">
-      <section className="panel prob-panel">
-        <div className="label" style={{ margin: 8 }}>시즈나이트 등급</div>
-        <div className="row" style={{ gap: 8, marginBottom: 0, flexWrap: 'wrap' }}>
+      <Card sx={{ p: 2 }}>
+        <Typography variant="overline" color="text.secondary" sx={{ display: 'block', mb: 1 }}>시즈나이트 등급</Typography>
+        <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
           <ModeSegment mode={rewardMode} onChange={setRewardMode} />
-        </div>
+        </Box>
 
-        <div className="label" style={{ marginBottom: 6 }}>보상 보드</div>
-        <Board current={position} rewards={rewardArray} />
+        <Typography variant="overline" color="text.secondary" sx={{ display: 'block', mb: 1 }}>보상 보드 (클릭하여 현재 위치 선택)</Typography>
+        <Board 
+          current={position} 
+          rewards={rewardArray} 
+          onCellClick={handleBoardClick}
+          clickable={true}
+        />
 
-        <div className="input-grid">
-          <NumberInput
-            label="현재 위치"
-            value={position}
-            onChange={(v) => setPosition(v)}
-            min={0}
-            max={16}
-          />
-          <NumberInput
-            label="잔여 선택 횟수"
-            value={remainingMoves}
-            onChange={(v) => setRemainingMoves(v)}
-            min={0}
-            max={manualMoveLimit}
-          />
-          <NumberInput
-            label="2번 잔여 횟수"
-            value={choice2Remain}
-            onChange={(v) => setChoice2Remain(v)}
-            min={0}
-            max={3}
-          />
-          <NumberInput
-            label="3번 잔여 횟수"
-            value={choice3Remain}
-            onChange={(v) => setChoice3Remain(v)}
-            min={0}
-            max={3}
-          />
-        </div>
+        <Typography variant="overline" color="text.secondary" sx={{ display: 'block', mt: 2, mb: 1 }}>잔여 횟수 (클릭하여 선택)</Typography>
+        <MovesProgress 
+          used={manualMoveLimit - remainingMoves} 
+          total={manualMoveLimit} 
+          gameOver={false}
+          onCellClick={handleMovesClick}
+          clickable={true}
+          blinkIndex={blinkMoveIndex}
+        />
 
-        <div style={{ marginTop: 24 }}>
-          <div className="label" style={{ marginBottom: 6 }}>선택지 (최고 확률 강조)</div>
-          <div className="choices" aria-label="선택지">
+        <Box sx={{ mt: 2 }}>
+          <Typography variant="overline" color="text.secondary" sx={{ display: 'block', mb: 1 }}>선택지 (최고 확률 강조)</Typography>
+          
+          {/* 테이블 형식으로 구성 */}
+          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1.5 }}>
+            {/* 첫 번째 행: 잔여 횟수 슬라이더 */}
+            <Box>{/* 1번 선택지는 잔여 횟수 없음 */}</Box>
+            <Card sx={{ px: 1, py: 0.5, bgcolor: 'background.default' }}>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', mb: 0, fontSize: '0.6rem' }}>
+                세공 잔여: {choice2Remain}
+              </Typography>
+              <Slider
+                size="small"
+                value={3 - choice2Remain}
+                onChange={(e, newValue) => setChoice2Remain(3 - newValue)}
+                min={0}
+                max={3}
+                step={1}
+                marks={[
+                  { value: 0, label: '3' },
+                  { value: 1, label: '2' },
+                  { value: 2, label: '1' },
+                  { value: 3, label: '0' },
+                ]}
+                sx={{ 
+                  mt: 0,
+                  mb: -0.5,
+                  '& .MuiSlider-markLabel': {
+                    fontSize: '0.6rem',
+                    top: '20px',
+                  },
+                  '& .MuiSlider-thumb': {
+                    width: 14,
+                    height: 14,
+                  }
+                }}
+              />
+            </Card>
+            <Card sx={{ px: 1, py: 0.5, bgcolor: 'background.default' }}>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', mb: 0, fontSize: '0.6rem' }}>
+                안정제 잔여: {choice3Remain}
+              </Typography>
+              <Slider
+                size="small"
+                value={3 - choice3Remain}
+                onChange={(e, newValue) => setChoice3Remain(3 - newValue)}
+                min={0}
+                max={3}
+                step={1}
+                marks={[
+                  { value: 0, label: '3' },
+                  { value: 1, label: '2' },
+                  { value: 2, label: '1' },
+                  { value: 3, label: '0' },
+                ]}
+                sx={{ 
+                  mt: 0,
+                  mb: -0.5,
+                  '& .MuiSlider-markLabel': {
+                    fontSize: '0.6rem',
+                    top: '20px',
+                  },
+                  '& .MuiSlider-thumb': {
+                    width: 14,
+                    height: 14,
+                  }
+                }}
+              />
+            </Card>
+
+            {/* 두 번째 행: 선택지 버튼 */}
             {probabilityResults.map((res) => {
-              const wrapperStyle = {
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 0,
-                ...(res.isBest
-                  ? {
-                      boxShadow: '0 0 0 2px #facc15',
-                      borderRadius: '10px',
-                      overflow: 'hidden',
-                      position: 'relative',
-                    }
-                  : {}),
-              };
-
-              const getButtonClass = () => {
-                if (res.choice.id === '1') return 'btn primary';
-                if (res.choice.id === '2') return 'btn warn';
-                if (res.choice.id === '3') return 'btn success';
-                return 'btn';
-              };
-
-              const getButtonText = () => {
-                if (res.choice.id === '1') return '1번: +3~+6';
-                if (res.choice.id === '2') {
-                  const remain = choice2Remain;
-                  return `2번: -3~+2 (${remain}회 남음)`;
-                }
-                if (res.choice.id === '3') {
-                  const remain = choice3Remain;
-                  return `3번: +0~+4 (${remain}회 남음)`;
-                }
-                return res.choice.label;
+              const getButtonColor = () => {
+                if (res.choice.id === '1') return 'primary';
+                if (res.choice.id === '2') return 'warning';
+                if (res.choice.id === '3') return 'secondary';
+                return 'primary';
               };
 
               return (
-                <div key={res.choice.id} style={wrapperStyle}>
-                  <button
-                    className={getButtonClass()}
+                <Box
+                  key={res.choice.id}
+                  sx={{
+                    ...(res.isBest
+                      ? {
+                          boxShadow: '0 0 0 2px #facc15',
+                          borderRadius: '10px 10px 0 0',
+                          overflow: 'hidden',
+                        }
+                      : {}),
+                  }}
+                >
+                  <Button
+                    variant="contained"
+                    color={getButtonColor()}
                     disabled={res.disabled}
-                    style={{ 
-                      cursor: 'default', 
-                      width: '100%',
-                      borderRadius: !res.disabled ? '10px 10px 0 0' : '10px',
-                      borderBottom: !res.disabled ? 'none' : undefined,
-                      marginBottom: 0,
-                      ...(res.isBest ? { position: 'relative' } : {})
-                    }}
                     title={res.disabled ? res.reason : undefined}
+                    fullWidth
+                    sx={{
+                      whiteSpace: 'pre-line',
+                      minHeight: 80,
+                      borderRadius: !res.disabled ? '10px 10px 0 0' : '10px',
+                      position: 'relative',
+                    }}
                   >
-                    {getButtonText()}
+                    {getButtonText(res.choice.id, 3 - choice2Remain, 3 - choice3Remain)}
                     {res.isBest && (
-                      <span
-                        className="chip"
-                        style={{
+                      <Chip
+                        label="최고 확률"
+                        size="small"
+                        sx={{
                           position: 'absolute',
                           top: 8,
                           right: 8,
-                          background: '#facc15',
+                          bgcolor: '#facc15',
                           color: '#000',
                           fontWeight: 600,
                         }}
-                      >
-                        최고 확률
-                      </span>
+                      />
                     )}
-                  </button>
-                  {!res.disabled && (
-                    <div className="card" style={{ 
-                      padding: '16px', 
-                      borderRadius: '0 0 10px 10px', 
-                      marginTop: 0, 
-                      borderTop: 'none',
-                      background: 'var(--panel-2)',
-                      textAlign: 'center',
-                    }}>
-                      <div className="value mono" style={{ fontSize: 24, fontWeight: 'bold' }}>
-                        {(res.probability * 100).toFixed(2)}%
-                      </div>
-                    </div>
-                  )}
-                  {res.disabled && (
-                    <div className="label" style={{ color: '#f87171', fontSize: 12, textAlign: 'center', padding: '8px' }}>
-                      {res.reason}
-                    </div>
-                  )}
-                </div>
+                  </Button>
+                </Box>
               );
             })}
-          </div>
-        </div>
-      </section>
+
+            {/* 세 번째 행: 확률 표시 */}
+            {probabilityResults.map((res) => (
+              <Box key={`prob-${res.choice.id}`}>
+                {!res.disabled && (
+                  <Card sx={{ p: 2, borderRadius: '0 0 10px 10px', textAlign: 'center', bgcolor: 'background.paper' }}>
+                    <Typography variant="h5" sx={{ fontFamily: 'monospace', fontWeight: 'bold' }}>
+                      {(res.probability * 100).toFixed(2)}%
+                    </Typography>
+                  </Card>
+                )}
+                {res.disabled && (
+                  <Typography variant="caption" color="error" sx={{ textAlign: 'center', p: 1, display: 'block' }}>
+                    {res.reason}
+                  </Typography>
+                )}
+              </Box>
+            ))}
+          </Box>
+        </Box>
+      </Card>
     </main>
   );
 }
 
-function NumberInput({ label, value, onChange, min, max }) {
-  return (
-    <label className="input-group">
-      <span className="label">{label}</span>
-      <input
-        className="input"
-        type="number"
-        value={value}
-        min={min}
-        max={max}
-        onChange={(e) => {
-          const num = Number(e.target.value);
-          const clamped = Number.isNaN(num) ? min : Math.min(Math.max(num, min), max);
-          onChange(clamped);
-        }}
-      />
-    </label>
-  );
-}
 
 function ViewToggle({ view, onChange }) {
-  const tabs = [
-    { id: 'game', label: '게임 플레이' },
-    { id: 'prob', label: '확률 계산' },
-  ];
-
   return (
-    <div className="seg view-toggle" role="tablist" aria-label="뷰 전환">
-      {tabs.map((tab) => (
-        <button
-          key={tab.id}
-          role="tab"
-          aria-selected={view === tab.id}
-          className={view === tab.id ? 'active' : ''}
-          onClick={() => onChange(tab.id)}
-        >
-          {tab.label}
-        </button>
-      ))}
-    </div>
+    <ToggleButtonGroup
+      value={view}
+      exclusive
+      onChange={(e, newView) => {
+        if (newView !== null) {
+          onChange(newView);
+        }
+      }}
+      aria-label="뷰 전환"
+      sx={{ mt: 2 }}
+    >
+      <ToggleButton value="game">게임 플레이</ToggleButton>
+      <ToggleButton value="prob">확률 계산</ToggleButton>
+    </ToggleButtonGroup>
   );
 }
 
@@ -851,12 +914,12 @@ export default function App() {
     return (
       <>
         <header>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h1>🍪 CookieRun:TOA - 잊혀진 기억의 제단 🍪</h1>
-            <button className="btn" onClick={() => setPage('main')}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="h4" component="h1">🍪 CookieRun:TOA - 잊혀진 기억의 제단 🍪</Typography>
+            <Button variant="contained" onClick={() => setPage('main')}>
               🪨시즈나이트 광산으로 돌아가기
-            </button>
-          </div>
+            </Button>
+          </Box>
         </header>
         <PuzzlePage />
       </>
@@ -864,19 +927,20 @@ export default function App() {
   }
 
   return (
-    <>
+    <ThemeProvider theme={darkTheme}>
+      <CssBaseline />
       <header>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h1>🍪 CookieRun:TOA - 시즈나이트 깍기 시뮬레이터 🍪</h1>
-          <button className="btn primary" onClick={() => setPage('puzzle')} style={{ marginLeft: 'auto' }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="h4" component="h1">🍪 CookieRun:TOA - 시즈나이트 깍기 시뮬레이터 🍪</Typography>
+          <Button variant="contained" color="primary" onClick={() => setPage('puzzle')} sx={{ ml: 'auto' }}>
             🕯️잊혀진 기억의 제단으로 돌아가기
-          </button>
-        </div>
+          </Button>
+        </Box>
         <ViewToggle view={view} onChange={setView} />
       </header>
 
       {view === 'game' ? <GameView game={game} /> : <ProbabilityTool />}
-    </>
+    </ThemeProvider>
   );
 }
 

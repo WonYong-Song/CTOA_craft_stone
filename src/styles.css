@@ -99,4 +99,9 @@ h1 { margin: 0 0 8px 0; font-size: 24px; }
 .game-container { display: flex; flex-direction: column; gap: 20px; }
 .info-panel { display: flex; flex-direction: column; gap: 12px; }
 
+/* 깜빡임 애니메이션 */
+@keyframes blink {
+  0%, 100% { opacity: 1; box-shadow: 0 0 10px rgba(96,165,250,0.5); }
+  50% { opacity: 0.4; box-shadow: 0 0 20px rgba(96,165,250,0.8); }
+}
 
