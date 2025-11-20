@@ -759,7 +759,7 @@ function PuzzlePage() {
                   maxWidth: '300px'
                 }}
               >
-                * 조각 정보가 과다할 경우 계산이 올리 걸릴 수 있습니다. \n*알고리즘에 의한 결과로 최고 점수가 아닐 수 있습니다.
+                * 조각 정보가 과다할 경우 계산이 올리 걸릴 수 있습니다. 알고리즘에 의한 결과로 최고 점수가 아닐 수 있습니다.
               </Typography>
               <IconButton
                 onClick={() => setShowHelp(true)}

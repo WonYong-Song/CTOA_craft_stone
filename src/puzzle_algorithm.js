@@ -49,6 +49,23 @@ export function findBestCombinationWithBacktracking(
   console.log(`역할군 일치 조각: ${matchingPieces.length}개`);
   console.log(`역할군 불일치 조각 (1~5칸): ${nonMatchingPieces.length}개`);
   
+  // 역할군 일치 조각의 속성 분포 확인
+  const matchingAttrCount = {};
+  matchingPieces.forEach(p => {
+    const attr = p.size === 8 ? `유니크(${p.attribute})` : p.attribute;
+    matchingAttrCount[attr] = (matchingAttrCount[attr] || 0) + 1;
+  });
+  console.log(`  역할군 일치 속성 분포:`, matchingAttrCount);
+  
+  // 역할군 불일치 조각의 속성 분포 확인
+  const nonMatchingAttrCount = {};
+  nonMatchingPieces.forEach(p => {
+    nonMatchingAttrCount[p.attribute] = (nonMatchingAttrCount[p.attribute] || 0) + 1;
+  });
+  if (Object.keys(nonMatchingAttrCount).length > 0) {
+    console.log(`  역할군 불일치 속성 분포:`, nonMatchingAttrCount);
+  }
+  
   // 사용 가능한 유니크 조각 확인
   const availableUniquePieces = matchingPieces.filter(p => p.size === 8);
   if (availableUniquePieces.length > 0) {
@@ -113,50 +130,53 @@ export function findBestCombinationWithBacktracking(
   });
 
   // 속성을 예상 점수 순으로 정렬
-  const sortedAttributes = Object.keys(attributePriority).sort((a, b) => 
+  const defaultSortedAttributes = Object.keys(attributePriority).sort((a, b) => 
     attributePriority[b].totalScore - attributePriority[a].totalScore
   );
 
   console.log('속성별 예상 점수 (21개 달성 시):');
-  sortedAttributes.forEach(attr => {
+  defaultSortedAttributes.forEach(attr => {
     console.log(`  ${attr}: ${attributePriority[attr].totalScore}점 (${attributePriority[attr].totalCells}칸)`);
   });
 
-  // 조각 우선순위 정렬 (전략적)
-  const sortedPieces = [];
-  
-  // 1단계: 역할군 일치 유니크 조각 (8칸) 최우선
-  const uniqueMatchingPieces = matchingPieces
-    .filter(p => p.size === 8)
-    .sort((a, b) => {
-      // 현재 역할군이 '전 역할군'보다 우선
-      if (a.attribute === job && b.attribute !== job) return -1;
-      if (a.attribute !== job && b.attribute === job) return 1;
-      return 0;
+  // 속성 우선순위에 따라 조각 정렬하는 함수
+  const createSortedPieces = (sortedAttributes) => {
+    const sortedPieces = [];
+    
+    // 1단계: 역할군 일치 유니크 조각 (8칸) 최우선
+    const uniqueMatchingPieces = matchingPieces
+      .filter(p => p.size === 8)
+      .sort((a, b) => {
+        // 현재 역할군이 '전 역할군'보다 우선
+        if (a.attribute === job && b.attribute !== job) return -1;
+        if (a.attribute !== job && b.attribute === job) return 1;
+        return 0;
+      });
+    sortedPieces.push(...uniqueMatchingPieces);
+
+    // 2단계: 속성별로 21개 달성 우선순위에 따라 1~5칸 조각 정렬
+    sortedAttributes.forEach(attr => {
+      const attrPieces = attributePriority[attr].pieces;
+      sortedPieces.push(...attrPieces);
     });
-  sortedPieces.push(...uniqueMatchingPieces);
 
-  // 2단계: 속성별로 21개 달성 우선순위에 따라 1~5칸 조각 정렬
-  sortedAttributes.forEach(attr => {
-    const attrPieces = attributePriority[attr].pieces;
-    sortedPieces.push(...attrPieces);
-  });
+    // 3단계: 역할군 불일치 조각 (점수 효율 순)
+    const sortedNonMatching = nonMatchingPieces.sort((a, b) => {
+      const effA = RARITY_SCORES[a.rarity];
+      const effB = RARITY_SCORES[b.rarity];
+      if (effA !== effB) return effB - effA;
+      return b.size - a.size;
+    });
+    sortedPieces.push(...sortedNonMatching);
 
-  // 3단계: 역할군 불일치 조각 (점수 효율 순)
-  const sortedNonMatching = nonMatchingPieces.sort((a, b) => {
-    const effA = RARITY_SCORES[a.rarity];
-    const effB = RARITY_SCORES[b.rarity];
-    if (effA !== effB) return effB - effA;
-    return b.size - a.size;
-  });
-  sortedPieces.push(...sortedNonMatching);
-
-  console.log(`조각 정렬 완료: 총 ${sortedPieces.length}개`);
+    return sortedPieces;
+  };
 
   // ===== 전략적 목표 조합 계산 (백트래킹 전) =====
-  console.log('\n🎯 전략적 목표 조합 계산 중...');
   
-  const calculateOptimalStrategy = () => {
+  const calculateOptimalStrategy = (sortedAttributes) => {
+    console.log('\n🎯 전략적 목표 조합 계산 중...');
+    console.log(`   우선 속성 순서: ${sortedAttributes.join(' > ')}`);
     const strategy = {
       targetPieces: [],
       uniquePiece: null,
@@ -202,12 +222,11 @@ export function findBestCombinationWithBacktracking(
       console.log(`  ✅ 유니크 선택: ${bestUniquePiece.attribute} (+${bestUniqueScore}점)`);
     }
     
-    // 2단계: 속성별 21칸 달성 전략
-    // 각 속성별로 고등급 조각 칸 수 계산
-    const attributeRarityScores = {};
-    jobAttributes.forEach(attr => {
+    // 2단계: 속성별 최적 칸 수 계산 (우선순위에 따라 21, 18, 15, 12, 9칸 목표)
+    // 각 속성별로 가능한 조합 계산
+    const calculateBestCombination = (attr, targetCells, excludedPieceIds) => {
       const attrPieces = matchingPieces.filter(p => 
-        p.size <= 5 && p.attribute === attr && !usedPieceIds.has(p.id)
+        p.size <= 5 && p.attribute === attr && !excludedPieceIds.has(p.id)
       );
       
       // 고등급 조각 우선 정렬
@@ -218,20 +237,20 @@ export function findBestCombinationWithBacktracking(
         return b.size - a.size;
       });
       
-      // 21칸 달성 시 예상 점수 계산 (정확히 21칸 이하로 조합)
+      // 목표 칸 수에 맞는 조합 찾기
       let cells = 0;
       let baseScore = 0;
-      let highRarityCells = 0; // 슈퍼에픽 이상
-      const piecesFor21 = [];
+      let highRarityCells = 0;
+      const selectedPieces = [];
       
       for (const piece of attrPieces) {
-        if (cells >= 21) break;
+        if (cells >= targetCells) break;
         
-        // 21칸을 초과하지 않는 조각만 추가
-        if (cells + piece.size <= 21) {
+        // 목표 칸 수를 초과하지 않는 조각만 추가
+        if (cells + piece.size <= targetCells) {
           cells += piece.size;
           baseScore += RARITY_SCORES[piece.rarity] * piece.size;
-          piecesFor21.push(piece);
+          selectedPieces.push(piece);
           
           if (piece.rarity === '슈퍼에픽' || piece.rarity === '유니크') {
             highRarityCells += piece.size;
@@ -239,16 +258,16 @@ export function findBestCombinationWithBacktracking(
         }
       }
       
-      // 21칸에 최대한 가깝게 채우기 위해 작은 조각들로 보완
-      if (cells < 21) {
-        const usedIds = new Set(piecesFor21.map(p => p.id));
+      // 목표에 가깝게 채우기 위해 작은 조각들로 보완
+      if (cells < targetCells) {
+        const usedIds = new Set(selectedPieces.map(p => p.id));
         const remainingPieces = attrPieces.filter(p => !usedIds.has(p.id));
         
         for (const piece of remainingPieces) {
-          if (cells + piece.size <= 21) {
+          if (cells + piece.size <= targetCells) {
             cells += piece.size;
             baseScore += RARITY_SCORES[piece.rarity] * piece.size;
-            piecesFor21.push(piece);
+            selectedPieces.push(piece);
             
             if (piece.rarity === '슈퍼에픽' || piece.rarity === '유니크') {
               highRarityCells += piece.size;
@@ -257,115 +276,129 @@ export function findBestCombinationWithBacktracking(
         }
       }
       
-      // 21칸 달성 시 보너스 점수
+      // 보너스 점수 계산
       let bonusScore = 0;
-      if (cells >= 21) bonusScore = 265 * 5; // 1325점
+      if (cells >= 21) bonusScore = 265 * 5;
       else if (cells >= 18) bonusScore = 265 * 4;
       else if (cells >= 15) bonusScore = 265 * 3;
       else if (cells >= 12) bonusScore = 265 * 2;
       else if (cells >= 9) bonusScore = 265;
       
-      attributeRarityScores[attr] = {
+      return {
         totalScore: baseScore + bonusScore,
         baseScore,
         bonusScore,
         cells,
-        pieces: piecesFor21,
+        pieces: selectedPieces,
         highRarityCells,
-        efficiency: (baseScore + bonusScore) / Math.max(cells, 1),
       };
+    };
+    
+    // 각 속성별로 21칸 달성 시 점수 미리 계산 (정렬용)
+    const attributeRarityScores = {};
+    jobAttributes.forEach(attr => {
+      attributeRarityScores[attr] = calculateBestCombination(attr, 21, usedPieceIds);
     });
     
-    // 점수 효율이 높은 속성부터 21칸 달성
-    const sortedByEfficiency = Object.keys(attributeRarityScores).sort((a, b) => {
-      const effA = attributeRarityScores[a];
-      const effB = attributeRarityScores[b];
-      
-      // 1순위: 총 점수
-      if (effA.totalScore !== effB.totalScore) {
-        return effB.totalScore - effA.totalScore;
-      }
-      
-      // 2순위: 고등급 조각 칸 수
-      return effB.highRarityCells - effA.highRarityCells;
-    });
-    
-    console.log(`  📊 속성별 우선순위:`);
-    sortedByEfficiency.forEach((attr, idx) => {
+    // 파라미터로 받은 속성 우선순위 사용
+    console.log(`  📊 속성별 정보 (21칸 기준):`);
+    sortedAttributes.forEach((attr, idx) => {
       const info = attributeRarityScores[attr];
-      console.log(`    ${idx + 1}. ${attr}: ${info.totalScore}점 (${info.cells}칸, 고등급 ${info.highRarityCells}칸)`);
+      if (info) {
+        console.log(`    ${idx + 1}. ${attr}: ${info.totalScore}점 (${info.cells}칸, 고등급 ${info.highRarityCells}칸)`);
+      }
     });
+    console.log(`  ℹ️ 실제 목표는 남은 칸 수에 따라 자동 조정됩니다.`);
     
-    // 3단계: 우선순위에 따라 속성별 21칸 달성
-    for (const attr of sortedByEfficiency) {
-      const attrInfo = attributeRarityScores[attr];
+    // 3단계: 파라미터로 받은 우선순위에 따라 속성별 최적 칸 수 달성
+    // 먼저 모든 속성에 대해 가능한 조합들을 계산
+    const attributeCombinations = [];
+    
+    for (const attr of sortedAttributes) {
+      // 각 가능한 목표(21, 18, 15, 12, 9)에 대해 계산
+      const possibleTargets = [21, 18, 15, 12, 9];
+      const combinations = [];
       
-      // 칸 수 체크
-      const remainingCells = totalOpenCells - totalUsedCells;
-      if (attrInfo.cells === 0) {
-        console.log(`  ⚠️ ${attr}: 사용 가능한 조각이 없습니다.`);
-        continue;
+      for (const target of possibleTargets) {
+        const targetInfo = calculateBestCombination(attr, target, new Set());
+        
+        // 실제로 달성 가능한 칸 수가 최소 9칸 이상이어야 함
+        if (targetInfo.cells >= 9) {
+          combinations.push({
+            attr,
+            target,
+            info: targetInfo,
+          });
+        }
       }
       
-      if (attrInfo.cells > remainingCells) {
-        console.log(`  ⚠️ ${attr}: 칸 부족 (필요: ${attrInfo.cells}, 남은 칸: ${remainingCells})`);
+      if (combinations.length > 0) {
+        attributeCombinations.push({
+          attr,
+          combinations: combinations.sort((a, b) => b.info.totalScore - a.info.totalScore),
+        });
+      }
+    }
+    
+    // 전체 남은 칸(유니크 제외)에 맞게 속성 조합 선택
+    const availableCellsForAttributes = totalOpenCells - totalUsedCells;
+    console.log(`  📦 속성 조각 배치 가능 칸 수: ${availableCellsForAttributes}칸`);
+    
+    for (const attrCombo of attributeCombinations) {
+      const remainingCells = totalOpenCells - totalUsedCells;
+      
+      // 남은 칸이 9칸 미만이면 중단
+      if (remainingCells < 9) {
+        console.log(`  ℹ️ 남은 칸이 ${remainingCells}칸으로 부족하여 추가 속성 배치 중단`);
+        break;
+      }
+      
+      // 이미 사용된 조각 제외하고 다시 계산
+      let bestCombo = null;
+      let bestScore = 0;
+      
+      for (const combo of attrCombo.combinations) {
+        // 사용 가능한 조각만 필터링
+        const availablePieces = combo.info.pieces.filter(p => !usedPieceIds.has(p.id));
+        const availableCells = availablePieces.reduce((sum, p) => sum + p.size, 0);
         
-        // 부분적으로라도 추가 시도
-        if (remainingCells >= 9) {
-          const partialPieces = [];
-          let partialCells = 0;
+        if (availableCells >= 9 && availableCells <= remainingCells) {
+          const recalcInfo = calculateBestCombination(attrCombo.attr, combo.target, usedPieceIds);
           
-          for (const piece of attrInfo.pieces) {
-            if (partialCells + piece.size <= remainingCells) {
-              partialPieces.push(piece);
-              partialCells += piece.size;
-            }
-          }
-          
-          if (partialCells >= 9) {
-            strategy.attributeTargets[attr] = {
-              targetCells: partialCells,
-              pieces: partialPieces,
-              expectedScore: attrInfo.baseScore * (partialCells / attrInfo.cells),
-            };
-            
-            partialPieces.forEach(piece => {
-              strategy.targetPieces.push(piece);
-              usedPieceIds.add(piece.id);
-              totalUsedCells += piece.size;
-              strategy.expectedScore += RARITY_SCORES[piece.rarity] * piece.size;
-            });
-            
-            console.log(`  ⚠️ ${attr}: 부분 달성 목표 (${partialCells}칸, 조각 ${partialPieces.length}개)`);
+          if (recalcInfo.cells >= 9 && recalcInfo.totalScore > bestScore) {
+            bestCombo = recalcInfo;
+            bestScore = recalcInfo.totalScore;
           }
         }
+      }
+      
+      if (!bestCombo || bestCombo.cells === 0) {
+        console.log(`  ⚠️ ${attrCombo.attr}: 사용 가능한 조각이 없습니다.`);
         continue;
       }
       
-      // 이 속성의 조각들 추가
-      strategy.attributeTargets[attr] = {
-        targetCells: attrInfo.cells,
-        pieces: attrInfo.pieces,
-        expectedScore: attrInfo.totalScore,
+      // 최적 목표 조합 추가
+      strategy.attributeTargets[attrCombo.attr] = {
+        targetCells: bestCombo.cells,
+        pieces: bestCombo.pieces,
+        expectedScore: bestCombo.totalScore,
       };
       
-      attrInfo.pieces.forEach(piece => {
+      bestCombo.pieces.forEach(piece => {
         strategy.targetPieces.push(piece);
         usedPieceIds.add(piece.id);
         totalUsedCells += piece.size;
         strategy.expectedScore += RARITY_SCORES[piece.rarity] * piece.size;
       });
       
-      strategy.expectedScore += attrInfo.bonusScore;
+      strategy.expectedScore += bestCombo.bonusScore;
       
-      const achievementStr = attrInfo.cells >= 21 ? '21칸 달성' : `${attrInfo.cells}칸`;
-      console.log(`  ✅ ${attr}: ${achievementStr} 목표 (조각 ${attrInfo.pieces.length}개, +${attrInfo.totalScore.toLocaleString()}점)`);
-      
-      // 칸이 많이 남았으면 다음 속성도 시도
-      if (totalUsedCells + 9 > totalOpenCells) {
-        console.log(`  ℹ️ 남은 칸이 부족하여 추가 속성 배치 중단`);
-        break;
-      }
+      const achievementStr = bestCombo.cells >= 21 ? '21칸 달성' : 
+                            bestCombo.cells >= 18 ? '18칸 달성' :
+                            bestCombo.cells >= 15 ? '15칸 달성' :
+                            bestCombo.cells >= 12 ? '12칸 달성' :
+                            `9칸 달성`;
+      console.log(`  ✅ ${attrCombo.attr}: ${achievementStr} (${bestCombo.cells}칸, 조각 ${bestCombo.pieces.length}개, +${bestCombo.totalScore.toLocaleString()}점)`);
     }
     
     // 4단계: 남은 칸에 역할군 일치 고등급 조각 채우기
@@ -416,8 +449,19 @@ export function findBestCombinationWithBacktracking(
       }
     }
     
-  console.log(`\n  🎯 목표 조합: ${strategy.targetPieces.length}개 조각 (모두 역할군 일치 ✅)`);
+  console.log(`\n  🎯 목표 조합: ${strategy.targetPieces.length}개 조각, 총 ${totalUsedCells}/${totalOpenCells}칸`);
   console.log(`  💰 예상 점수: ${strategy.expectedScore.toLocaleString()}점`);
+  
+  // 목표 조합의 속성별 분포
+  console.log(`  📊 속성별 목표 칸 수:`);
+  Object.entries(strategy.attributeTargets).forEach(([attr, target]) => {
+    const bonusStr = target.targetCells >= 21 ? '(보너스 5단계)' :
+                     target.targetCells >= 18 ? '(보너스 4단계)' :
+                     target.targetCells >= 15 ? '(보너스 3단계)' :
+                     target.targetCells >= 12 ? '(보너스 2단계)' :
+                     target.targetCells >= 9 ? '(보너스 1단계)' : '';
+    console.log(`     ${attr}: ${target.targetCells}칸 ${bonusStr}`);
+  });
   
   // 목표 조합이 모두 역할군 일치 조각인지 확인
   const allMatching = strategy.targetPieces.every(p => 
@@ -430,10 +474,32 @@ export function findBestCombinationWithBacktracking(
   
   return strategy;
   };
-  
-  const optimalStrategy = calculateOptimalStrategy();
 
-  // 상한 계산 (가지치기용) - 보너스 점수를 고려한 최적 추정
+  // ===== 여러 속성 우선순위 조합 시도 =====
+  console.log('\n\n🔄 ===== 주/부 속성 우선순위를 바꿔가며 최적 조합 탐색 =====');
+  console.log(`역할군 속성: ${jobAttributes.join(', ')}`);
+  
+  // 각 속성을 1순위로 하는 조합 생성
+  const priorityCombinations = jobAttributes.map(primaryAttr => {
+    return [primaryAttr, ...jobAttributes.filter(a => a !== primaryAttr)];
+  });
+  
+  console.log(`\n총 ${priorityCombinations.length}가지 우선순위 조합을 시도합니다:`);
+  priorityCombinations.forEach((combo, idx) => {
+    console.log(`  시나리오 ${idx + 1}: ${combo.join(' > ')}`);
+  });
+  
+  let bestOverallScore = 0;
+  let bestOverallResult = {
+    placedPieces: [],
+    score: 0,
+    usedCells: 0,
+    attributeCounts: {},
+    priorityCombo: [],
+    scenarioNumber: 0,
+  };
+  
+  // 상한 계산 함수 (반복문 밖에서 한 번만 정의)
   const calculateUpperBound = (currentScore, remainingPieces, remainingCells, currentAttributeCounts, usedUnique) => {
     if (remainingPieces.length === 0 || remainingCells <= 0) {
       return currentScore;
@@ -476,28 +542,59 @@ export function findBestCombinationWithBacktracking(
     return estimatedScore + bonusScore;
   };
 
-  let bestScore = 0;
-  let bestPlacement = [];
-  let bestAttributeCounts = {};
-  let searchCount = 0;
-  const MAX_SEARCH = 1000000; // 백만 번 탐색 (50만 → 100만)
-  const startTime = Date.now();
-  const MAX_TIME = 15000; // 15초 (10초 → 15초)
-  
-  // 1단계: 역할군 일치 조각만 사용
-  const matchingTargetPieces = optimalStrategy.targetPieces.filter(p => 
-    matchingPieces.some(mp => mp.id === p.id)
-  );
-  
-  // 2단계: 역할군 불일치 조각 (필요시)
-  const nonMatchingTargetPieces = optimalStrategy.targetPieces.filter(p => 
-    !matchingPieces.some(mp => mp.id === p.id)
-  );
-  
-  console.log(`\n🎯 1단계: 역할군 일치 조각만으로 배치 시도 (${matchingTargetPieces.length}개)...`);
-  if (nonMatchingTargetPieces.length > 0) {
-    console.log(`   (필요시 2단계에서 역할군 불일치 조각 ${nonMatchingTargetPieces.length}개 추가 시도)`);
-  }
+  // 각 우선순위 조합 시도
+  for (let scenarioIdx = 0; scenarioIdx < priorityCombinations.length; scenarioIdx++) {
+    const sortedAttributes = priorityCombinations[scenarioIdx];
+    const primaryAttr = sortedAttributes[0];
+    
+    console.log(`\n\n${'='.repeat(80)}`);
+    console.log(`🎯 시나리오 ${scenarioIdx + 1}/${priorityCombinations.length}: "${primaryAttr}" 속성 우선 전략`);
+    console.log(`   우선순위: ${sortedAttributes.join(' > ')}`);
+    console.log('='.repeat(80));
+    
+    // 조각 정렬
+    const sortedPieces = createSortedPieces(sortedAttributes);
+    
+    // 목표 조합 계산
+    const optimalStrategy = calculateOptimalStrategy(sortedAttributes);
+
+    // 시나리오별 변수 초기화
+    let bestScore = 0;
+    let bestPlacement = [];
+    let bestAttributeCounts = {};
+    let searchCount = 0;
+    const MAX_SEARCH = 1000000; // 백만 번 탐색
+    const startTime = Date.now();
+    const MAX_TIME = 15000; // 15초
+    
+    // 1단계: 역할군 일치 조각만 사용
+    const matchingTargetPieces = optimalStrategy.targetPieces.filter(p => 
+      matchingPieces.some(mp => mp.id === p.id)
+    );
+    
+    // 2단계: 역할군 불일치 조각 (필요시)
+    const nonMatchingTargetPieces = optimalStrategy.targetPieces.filter(p => 
+      !matchingPieces.some(mp => mp.id === p.id)
+    );
+    
+    console.log(`\n🎯 1단계: 역할군 일치 조각만으로 배치 시도 (${matchingTargetPieces.length}개)...`);
+    
+    // 1단계 조각의 속성 분포 확인
+    const phase1AttrDist = {};
+    matchingTargetPieces.forEach(p => {
+      const attr = p.size === 8 ? `유니크(${p.attribute})` : p.attribute;
+      phase1AttrDist[attr] = (phase1AttrDist[attr] || 0) + 1;
+    });
+    console.log(`   역할군 일치 조각 속성:`, phase1AttrDist);
+    
+    if (nonMatchingTargetPieces.length > 0) {
+      const phase2AttrDist = {};
+      nonMatchingTargetPieces.forEach(p => {
+        phase2AttrDist[p.attribute] = (phase2AttrDist[p.attribute] || 0) + 1;
+      });
+      console.log(`   (필요시 2단계에서 역할군 불일치 조각 ${nonMatchingTargetPieces.length}개 추가 시도)`);
+      console.log(`   역할군 불일치 조각 속성:`, phase2AttrDist);
+    }
 
   // 백트래킹 (목표 조합 배치)
   const backtrack = (targetPiecesToPlace, pieceIndex, currentPlaced, usedCells, currentAttributeCounts, usedUnique) => {
@@ -540,7 +637,19 @@ export function findBestCombinationWithBacktracking(
           bonusInfo.push(`${attr}:${count}칸`);
         }
       });
-      console.log(`  ✨ 최고 점수 갱신: ${bestScore.toLocaleString()}점 (조각 ${currentPlaced.length}/${targetPiecesToPlace.length}개, ${bonusInfo.join(', ')})`);
+      
+      // 역할군 불일치 조각이 포함되어 있는지 확인
+      const nonMatchingInPlacement = currentPlaced.filter(p => 
+        !matchingPieces.some(mp => mp.id === p.id)
+      );
+      
+      let warningMsg = '';
+      if (nonMatchingInPlacement.length > 0) {
+        const nonMatchingAttrs = nonMatchingInPlacement.map(p => `${p.attribute}(${p.size}칸)`).join(', ');
+        warningMsg = ` ⚠️ 역할군 불일치: ${nonMatchingAttrs}`;
+      }
+      
+      console.log(`  ✨ 최고 점수 갱신: ${bestScore.toLocaleString()}점 (조각 ${currentPlaced.length}/${targetPiecesToPlace.length}개, ${bonusInfo.join(', ')})${warningMsg}`);
     }
     
     if (pieceIndex >= targetPiecesToPlace.length || remainingCells <= 0) {
@@ -692,11 +801,20 @@ export function findBestCombinationWithBacktracking(
     console.log(`   - 속성 현황: ${phase1AttributeStatus.join(', ')}`);
   }
   
+  // 목표 vs 실제 비교
+  console.log(`\n   📊 목표 vs 실제 비교:`);
+  Object.entries(optimalStrategy.attributeTargets).forEach(([attr, target]) => {
+    const actual = phase1AttributeCounts[attr] || 0;
+    const status = actual >= target.targetCells ? '✅' : 
+                   actual >= target.targetCells - 3 ? '⚠️' : '❌';
+    console.log(`     ${attr}: 목표 ${target.targetCells}칸 → 실제 ${actual}칸 ${status}`);
+  });
+  
   // 역할군 일치 조각으로 모든 칸을 채웠는지 확인
   if (phase1UsedCells === totalOpenCells) {
-    console.log(`   🎉 역할군 일치 조각만으로 모든 칸을 채웠습니다!`);
+    console.log(`\n   🎉 역할군 일치 조각만으로 모든 칸을 채웠습니다!`);
   } else {
-    console.log(`   ⚠️ 남은 칸: ${totalOpenCells - phase1UsedCells}칸`);
+    console.log(`\n   ⚠️ 남은 칸: ${totalOpenCells - phase1UsedCells}칸 (목표 조합이 모두 배치되지 않았을 수 있음)`);
   }
   
   // 2단계: 역할군 불일치 조각 추가 시도 (1단계에서 칸이 남은 경우만)
@@ -864,18 +982,57 @@ export function findBestCombinationWithBacktracking(
     console.log(`  ✨ 모든 칸이 채워졌습니다!`);
   }
   
-  const elapsedTime = (Date.now() - startTime) / 1000;
-  console.log('\n=== ✅ 최적화 완료 ===');
-  console.log(`⏱️ 총 소요 시간: ${elapsedTime.toFixed(2)}초`);
-  console.log(`🎯 목표 점수: ${optimalStrategy.expectedScore.toLocaleString()}점`);
-  console.log(`🏆 최종 점수: ${bestScore.toLocaleString()}점`);
-  console.log(`🧩 배치된 조각: ${bestPlacement.length}개`);
+    // 시나리오 결과 로깅
+    const elapsedTime = (Date.now() - startTime) / 1000;
+    console.log(`\n✅ 시나리오 ${scenarioIdx + 1} 완료 (${elapsedTime.toFixed(2)}초):`);
+    console.log(`   🏆 최종 점수: ${bestScore.toLocaleString()}점`);
+    console.log(`   🧩 배치된 조각: ${bestPlacement.length}개`);
+    console.log(`   📦 사용된 칸: ${bestPlacement.reduce((sum, p) => sum + p.placedCells.length, 0)}/${totalOpenCells}칸`);
+    
+    // 속성별 21칸 달성 표시
+    const attr21List = [];
+    Object.entries(bestAttributeCounts).forEach(([attr, count]) => {
+      if (jobAttributes.includes(attr) && count >= 21) {
+        attr21List.push(`${attr} 21✅`);
+      }
+    });
+    if (attr21List.length > 0) {
+      console.log(`   ✨ 21칸 달성: ${attr21List.join(', ')}`);
+    }
+    
+    // 최고 점수 갱신
+    if (bestScore > bestOverallScore) {
+      console.log(`   🎉 새로운 최고 점수! (이전: ${bestOverallScore.toLocaleString()}점)`);
+      bestOverallScore = bestScore;
+      bestOverallResult = {
+        placedPieces: [...bestPlacement],
+        score: bestScore,
+        usedCells: bestPlacement.reduce((sum, p) => sum + p.placedCells.length, 0),
+        attributeCounts: { ...bestAttributeCounts },
+        priorityCombo: [...sortedAttributes],
+        scenarioNumber: scenarioIdx + 1,
+        optimalStrategy: optimalStrategy,
+      };
+    } else {
+      console.log(`   (현재 최고: ${bestOverallScore.toLocaleString()}점, 시나리오 ${bestOverallResult.scenarioNumber})`);
+    }
+  } // 시나리오 반복문 끝
+  
+  // ===== 최종 결과 출력 =====
+  console.log('\n\n' + '='.repeat(80));
+  console.log('🏆 ===== 최적 조합 선택 완료 ===== 🏆');
+  console.log('='.repeat(80));
+  console.log(`\n✨ 최고 점수 시나리오: 시나리오 ${bestOverallResult.scenarioNumber}`);
+  console.log(`   우선순위: ${bestOverallResult.priorityCombo.join(' > ')}`);
+  console.log(`   최종 점수: ${bestOverallResult.score.toLocaleString()}점`);
+  console.log(`   배치된 조각: ${bestOverallResult.placedPieces.length}개`);
+  console.log(`   사용된 칸: ${bestOverallResult.usedCells}/${totalOpenCells}칸`);
   
   // 역할군별 조각 통계
-  const matchingCount = bestPlacement.filter(p => 
+  const matchingCount = bestOverallResult.placedPieces.filter(p => 
     matchingPieces.some(mp => mp.id === p.id)
   ).length;
-  const nonMatchingCount = bestPlacement.length - matchingCount;
+  const nonMatchingCount = bestOverallResult.placedPieces.length - matchingCount;
   
   if (nonMatchingCount > 0) {
     console.log(`   - 역할군 일치: ${matchingCount}개`);
@@ -884,40 +1041,67 @@ export function findBestCombinationWithBacktracking(
     console.log(`   - 모두 역할군 일치 조각 ✅`);
   }
   
-  if (bestPlacement.length > 0) {
+  if (bestOverallResult.placedPieces.length > 0) {
     console.log('\n📈 최종 속성별 칸 수:');
     const bonusDetails = [];
-    Object.entries(bestAttributeCounts).forEach(([attr, count]) => {
-      if (jobAttributes.includes(attr) && count > 0) {
-        let bonus = 0;
-        if (count >= 21) bonus = 265 * 5;
-        else if (count >= 18) bonus = 265 * 4;
-        else if (count >= 15) bonus = 265 * 3;
-        else if (count >= 12) bonus = 265 * 2;
-        else if (count >= 9) bonus = 265;
-        
-        const targetInfo = optimalStrategy.attributeTargets[attr];
-        const targetStr = targetInfo ? ` (목표: ${targetInfo.targetCells}칸)` : '';
-        console.log(`  ${attr}: ${count}칸${targetStr} → 보너스 ${bonus.toLocaleString()}점`);
-        bonusDetails.push({ attr, count, bonus });
+    const matchingAttrs = [];
+    const nonMatchingAttrs = [];
+    
+    Object.entries(bestOverallResult.attributeCounts).forEach(([attr, count]) => {
+      if (count > 0) {
+        if (jobAttributes.includes(attr)) {
+          // 역할군 일치 속성
+          let bonus = 0;
+          if (count >= 21) bonus = 265 * 5;
+          else if (count >= 18) bonus = 265 * 4;
+          else if (count >= 15) bonus = 265 * 3;
+          else if (count >= 12) bonus = 265 * 2;
+          else if (count >= 9) bonus = 265;
+          
+          const targetInfo = bestOverallResult.optimalStrategy.attributeTargets[attr];
+          const targetStr = targetInfo ? ` (목표: ${targetInfo.targetCells}칸)` : '';
+          matchingAttrs.push({ attr, count, bonus, targetStr });
+          bonusDetails.push({ attr, count, bonus });
+        } else {
+          // 역할군 불일치 속성 (보너스 없음)
+          nonMatchingAttrs.push({ attr, count });
+        }
       }
     });
     
+    // 역할군 일치 속성 표시
+    if (matchingAttrs.length > 0) {
+      console.log(`  ✅ 역할군 일치 (${job}):`);
+      matchingAttrs.forEach(({ attr, count, bonus, targetStr }) => {
+        console.log(`    ${attr}: ${count}칸${targetStr} → 보너스 ${bonus.toLocaleString()}점`);
+      });
+    }
+    
+    // 역할군 불일치 속성 표시 (경고)
+    if (nonMatchingAttrs.length > 0) {
+      console.log(`  ⚠️ 역할군 불일치 조각 사용됨:`);
+      nonMatchingAttrs.forEach(({ attr, count }) => {
+        console.log(`    ${attr}: ${count}칸 ← 이 조각은 ${job}에서 보너스를 받지 못합니다!`);
+      });
+    }
+    
     const totalBonus = bonusDetails.reduce((sum, d) => sum + d.bonus, 0);
-    const baseScore = bestScore - totalBonus;
+    const baseScore = bestOverallResult.score - totalBonus;
     console.log(`\n💎 기본 점수: ${baseScore.toLocaleString()}점`);
     console.log(`💰 보너스 점수: ${totalBonus.toLocaleString()}점`);
     
     // 유니크 조각 확인
-    const uniquePieces = bestPlacement.filter(p => p.size === 8);
+    const uniquePieces = bestOverallResult.placedPieces.filter(p => p.size === 8);
     if (uniquePieces.length > 0) {
       console.log(`⭐ 유니크 조각: ${uniquePieces[0].attribute} (${uniquePieces[0].shape})`);
     }
   }
   
+  console.log('\n' + '='.repeat(80) + '\n');
+  
   return {
-    placedPieces: bestPlacement,
-    score: bestScore,
+    placedPieces: bestOverallResult.placedPieces,
+    score: bestOverallResult.score,
   };
 }
 
